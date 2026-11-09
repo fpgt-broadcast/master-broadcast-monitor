@@ -198,6 +198,13 @@ not a channel, so it only suits accounts with a single channel.
 The sign-in is saved in `data/youtube-token.json` (keep it private; it's in
 `.gitignore`).
 
+**Restream and other services work too.** If vMix streams to Restream (or a
+similar service) that creates the YouTube broadcast and a new stream key for each
+event, the monitor reads whichever key that broadcast uses, however many old
+keys the channel has. If the key ever belongs to a channel the monitor isn't
+signed in to, the bar turns yellow, *"Can't check whether YouTube is
+receiving"*, rather than raising a false red alarm.
+
 **Which broadcast?** The monitor picks the most advanced one: live, then preview,
 then ready, preferring the one whose stream key is actually receiving. To force
 one, set `youtube.broadcastId` (the video ID from the Studio URL).

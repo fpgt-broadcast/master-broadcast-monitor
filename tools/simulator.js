@@ -19,7 +19,7 @@ export const PORTS = { control: 18000, vmix: 18088, ose: 18080, youtube: 18443, 
 
 export const sim = {
   vmix: { online: true, streaming: false, ftb: false, masterMuted: false, audio: 'normal', streamStartedAt: null },
-  youtube: { lifecycle: 'ready', receiving: 'auto', health: 'good', authApprovedAfterMs: 4000 },
+  youtube: { lifecycle: 'ready', receiving: 'auto', health: 'good', authApprovedAfterMs: 4000, oldStreamKeys: 120, streamOwnedElsewhere: false },
   scorebot: { running: true, sending: true, sport: 'football' },
   ose: { running: true, sport: 'Football', feedConnected: true },
   // answerRate: share of discovery questions answered (real senders skip some);
@@ -28,11 +28,12 @@ export const sim = {
 };
 
 export const SCENARIOS = {
-  'Pre-show (standby)': { 'vmix.online': true, 'vmix.streaming': false, 'vmix.ftb': false, 'vmix.masterMuted': false, 'vmix.audio': 'normal', 'youtube.lifecycle': 'ready', 'youtube.receiving': 'auto', 'youtube.health': 'good', 'scorebot.running': true, 'scorebot.sending': true, 'scorebot.sport': 'football', 'ose.running': true, 'ose.feedConnected': true, 'ndi.sources': ['VMIX-PC (vMix - Output 1)', 'CAM-PC (Camera 1)', 'CAM-PC (Camera 2)'], 'ndi.answerRate': 1, 'ndi.discoverySilent': false },
+  'Pre-show (standby)': { 'vmix.online': true, 'vmix.streaming': false, 'vmix.ftb': false, 'vmix.masterMuted': false, 'vmix.audio': 'normal', 'youtube.lifecycle': 'ready', 'youtube.receiving': 'auto', 'youtube.health': 'good', 'youtube.streamOwnedElsewhere': false, 'scorebot.running': true, 'scorebot.sending': true, 'scorebot.sport': 'football', 'ose.running': true, 'ose.feedConnected': true, 'ndi.sources': ['VMIX-PC (vMix - Output 1)', 'CAM-PC (Camera 1)', 'CAM-PC (Camera 2)'], 'ndi.answerRate': 1, 'ndi.discoverySilent': false },
   'Streaming, NOT live (preview)': { 'vmix.online': true, 'vmix.streaming': true, 'youtube.lifecycle': 'testing', 'youtube.receiving': 'auto' },
   'LIVE — all good': { 'vmix.online': true, 'vmix.streaming': true, 'vmix.audio': 'normal', 'vmix.masterMuted': false, 'youtube.lifecycle': 'live', 'youtube.receiving': 'auto', 'youtube.health': 'good' },
   'LIVE — YouTube not receiving': { 'vmix.streaming': true, 'youtube.lifecycle': 'live', 'youtube.receiving': 'no' },
   'LIVE — vMix stopped streaming': { 'vmix.streaming': false, 'youtube.lifecycle': 'live' },
+  'LIVE — stream key owned by another channel': { 'vmix.streaming': true, 'youtube.lifecycle': 'live', 'youtube.receiving': 'yes', 'youtube.streamOwnedElsewhere': true },
   'LIVE — stream health bad': { 'vmix.streaming': true, 'youtube.lifecycle': 'live', 'youtube.receiving': 'yes', 'youtube.health': 'bad' },
   'Audio clipping': { 'vmix.audio': 'clip' },
   'Audio silent': { 'vmix.audio': 'silent' },
@@ -131,6 +132,13 @@ function ytStream() {
     }
   };
 }
+function oldStreams() {
+  return Array.from({ length: sim.youtube.oldStreamKeys }, (_, i) => ({
+    kind: 'youtube#liveStream', id: `oldStream${i}`, snippet: { title: `Event key ${i + 1}` },
+    status: { streamStatus: 'inactive', healthStatus: { status: 'noData', configurationIssues: [] } }
+  }));
+}
+
 let deviceRequestedAt = 0;
 // The fake Google account manages two channels, like a personal channel plus a Brand Account.
 export const SIM_CHANNELS = { personal: 'Jack (personal)', brand: 'Demo Sports Network' };
@@ -192,7 +200,20 @@ function youtubeHandler(req, res, body) {
     const items = (st === 'active' && isActive) || (st === 'upcoming' && isUpcoming) || url.searchParams.get('id') ? [b].filter(Boolean) : [];
     return json(200, { items });
   }
-  if (url.pathname === '/youtube/v3/liveStreams') return json(200, { items: [ytStream()] });
+  if (url.pathname === '/youtube/v3/liveStreams') {
+    // Like a busy channel: many old stream keys (vMix and Studio can make one per
+    // event), listed 50 at a time with the one in use near the end.
+    const all = [...oldStreams(), ytStream()];
+    if (url.searchParams.get('id')) {
+      const want = url.searchParams.get('id').split(',');
+      if (sim.youtube.streamOwnedElsewhere) return json(200, { items: [] });
+      return json(200, { items: all.filter((s) => want.includes(s.id)) });
+    }
+    const max = Math.min(50, Number(url.searchParams.get('maxResults')) || 5);
+    const start = Number(url.searchParams.get('pageToken') || 0);
+    const items = all.slice(start, start + max);
+    return json(200, { items, ...(start + max < all.length ? { nextPageToken: String(start + max) } : {}) });
+  }
   if (url.pathname === '/youtube/v3/videos') return json(200, { items: [{ id: 'demoBroadcast01', liveStreamingDetails: { concurrentViewers: String(380 + Math.floor(Math.random() * 40)) } }] });
   if (url.pathname === '/youtube/v3/channels') {
     const k = chanOf(req.headers.authorization.replace('Bearer ', ''));

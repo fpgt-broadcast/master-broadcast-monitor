@@ -126,10 +126,19 @@ export default class YouTubeMonitor extends Monitor {
         broadcasts = active.concat(await this.listBroadcasts(part, 'upcoming'));
       }
     }
-    const streams = (await this.api('liveStreams', { part: 'id,snippet,status', mine: 'true', maxResults: 50 })).items || [];
+    // Look up the broadcasts' own stream keys by id. A channel can own hundreds of
+    // stream keys (vMix's YouTube login and Studio can make one per event), so
+    // listing "mine" and searching it misses the one in use.
+    const ids = [...new Set(broadcasts.map((x) => x.contentDetails?.boundStreamId).filter(Boolean))].slice(0, 50);
+    const streams = ids.length
+      ? (await this.api('liveStreams', { part: 'id,snippet,status', id: ids.join(','), maxResults: 50 })).items || []
+      : await this.findActiveStream();
     const b = pickBroadcast(broadcasts, streams);
     const boundId = b?.contentDetails?.boundStreamId;
     const s = boundId ? streams.find((x) => x.id === boundId) : streams.find((x) => x.status?.streamStatus === 'active');
+    // Bound to a stream key this sign-in cannot read (e.g. another channel's):
+    // we cannot tell whether YouTube is receiving, which is not the same as "it isn't".
+    this.state.streamUnreadable = !!(boundId && !s);
 
     const prev = this.state.broadcast?.lifeCycleStatus;
     const next = b?.status?.lifeCycleStatus || null;
@@ -167,6 +176,19 @@ export default class YouTubeMonitor extends Monitor {
         this.state.viewers = n != null ? parseInt(n, 10) : null;
       } catch { /* viewers are a nice-to-have */ }
     }
+  }
+
+  /** No broadcast to go by: page through the channel's stream keys for one that is receiving. */
+  async findActiveStream() {
+    let pageToken;
+    const seen = [];
+    for (let page = 0; page < 4; page++) {
+      const r = await this.api('liveStreams', { part: 'id,snippet,status', mine: 'true', maxResults: 50, ...(pageToken ? { pageToken } : {}) });
+      seen.push(...(r.items || []));
+      if (seen.some((x) => x.status?.streamStatus === 'active') || !r.nextPageToken) break;
+      pageToken = r.nextPageToken;
+    }
+    return seen;
   }
 
   async listBroadcasts(part, broadcastStatus) {
@@ -438,7 +460,9 @@ export default class YouTubeMonitor extends Monitor {
       { label: 'Channel', value: s.channel || '(unknown)' },
       { label: 'Broadcast', value: b ? b.title : 'none found' },
       { label: 'Status', value: b ? (LIFECYCLE[lc]?.label || lc) : '—', level: live ? 'ok' : (b && receiving ? 'crit' : undefined) },
-      { label: 'Receiving feed', value: st ? (receiving ? 'YES' : (st.streamStatus || 'no')) : '—', level: receiving ? 'ok' : (ctx.monitors.vmix?.state.streaming ? 'crit' : undefined) },
+      s.streamUnreadable
+        ? { label: 'Receiving feed', value: "unknown (can't read this broadcast's stream key)", level: 'warn' }
+        : { label: 'Receiving feed', value: st ? (receiving ? 'YES' : (st.streamStatus || 'no')) : '—', level: receiving ? 'ok' : (st && ctx.monitors.vmix?.state.streaming ? 'crit' : undefined) },
       { label: 'Stream health', value: st?.health || '—', level: healthLevel }
     ];
     if (live && b.actualStartTime) rows.push({ label: 'Live for', value: fmtAgo(ctx.now - Date.parse(b.actualStartTime)) });
@@ -448,7 +472,7 @@ export default class YouTubeMonitor extends Monitor {
 
     const issues = (st?.issues || []).filter((i) => i.severity !== 'info' || receiving);
     return {
-      level: live ? (receiving ? 'ok' : 'crit') : (receiving ? 'crit' : 'idle'),
+      level: s.streamUnreadable ? 'warn' : live ? (receiving ? 'ok' : 'crit') : (receiving ? 'crit' : 'idle'),
       status: live ? 'LIVE' : b ? (LIFECYCLE[lc]?.label || lc) : 'No broadcast',
       rows,
       list: issues.length ? {

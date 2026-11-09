@@ -67,6 +67,15 @@ test('bad health: yellow', () => {
   assert.deepEqual(ids(chainIssues(c)), ['youtube.health:warn']);
 });
 
+test('stream key unreadable: yellow "can\'t check", never red "not receiving"', () => {
+  const c = ctx({ vmix: { streaming: true, streamingSince: NOW - 600000 }, yt: { broadcast: bc('live'), stream: null, streamUnreadable: true } });
+  assert.deepEqual(ids(chainIssues(c)), ['youtube.stream_unknown:warn']);
+  const stopped = ctx({ vmix: { streaming: false }, yt: { broadcast: bc('live'), stream: null, streamUnreadable: true } });
+  assert.deepEqual(ids(chainIssues(stopped)), ['youtube.stream_unknown:warn', 'youtube.live_no_vmix:crit']);
+  const idle = ctx({ yt: { broadcast: bc('ready'), stream: null, streamUnreadable: true } });
+  assert.deepEqual(chainIssues(idle), []);
+});
+
 test('YouTube not connected: chain rules stay quiet', () => {
   const c = ctx({ vmix: { streaming: true, streamingSince: NOW - 600000 }, yt: { authed: false } });
   assert.deepEqual(chainIssues(c), []);

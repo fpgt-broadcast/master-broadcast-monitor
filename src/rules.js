@@ -22,6 +22,24 @@ export function chainIssues(ctx) {
   const receiving = st?.streamStatus === 'active';
   const out = [];
 
+  // The broadcast's stream key exists but this sign-in cannot read it. Say that,
+  // and do not guess either way about whether YouTube is receiving.
+  if (ys.streamUnreadable) {
+    if (vs.streaming || live) {
+      out.push({
+        id: 'youtube.stream_unknown', level: 'warn', title: "Can't check whether YouTube is receiving",
+        detail: `"${b?.title || 'The broadcast'}" uses a stream key the signed-in channel can't read, so its status is unknown. Use "Switch channel" on the YouTube card to sign in to the channel that owns it.`
+      });
+    }
+    if (live && !vs.streaming && vs.online) {
+      out.push({
+        id: 'youtube.live_no_vmix', level: 'crit', title: 'YouTube is LIVE but vMix is not streaming',
+        detail: `"${b.title}" is live and viewers are watching a stalled stream. Start streaming in vMix, or end the broadcast.`
+      });
+    }
+    return out;
+  }
+
   if (vs.streaming) {
     const since = ctx.now - vs.streamingSince;
     // Only trust YouTube data fetched after vMix started; older data predates the stream.

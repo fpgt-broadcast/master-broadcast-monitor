@@ -72,6 +72,23 @@ test('full show walk-through against the simulator', { timeout: 120000 }, async 
     assert.match(s.overall.detail, /LIVE on YouTube/);
   });
 
+  await t.test('the stream key is found on a channel with 120+ keys', async () => {
+    const s = await until(app, (x) => x.cards.find((c) => c.id === 'youtube').rows.find((r) => r.label === 'Receiving feed')?.value === 'YES');
+    const yt = s.cards.find((c) => c.id === 'youtube');
+    assert.equal(yt.rows.find((r) => r.label === 'Receiving feed').value, 'YES');
+    assert.equal(yt.rows.find((r) => r.label === 'Stream health').value, 'good');
+  });
+
+  await t.test('a stream key we cannot read is yellow "can\'t check", not red', async () => {
+    setPath('youtube.streamOwnedElsewhere', true);
+    const s = await until(app, (x) => ids(x).includes('youtube.stream_unknown'));
+    assert.ok(ids(s).includes('youtube.stream_unknown'));
+    assert.ok(!ids(s).includes('youtube.no_ingest'), JSON.stringify(s.issues));
+    assert.equal(s.overall.level, 'warn');
+    setPath('youtube.streamOwnedElsewhere', false);
+    await until(app, (x) => !ids(x).includes('youtube.stream_unknown'));
+  });
+
   await t.test('silent program audio goes yellow, muted goes red', async () => {
     scenario('Audio silent');
     let s = await until(app, (x) => ids(x).includes('audio.master.low'));

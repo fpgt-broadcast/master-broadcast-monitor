@@ -166,6 +166,7 @@ export function checkField(f, raw) {
       if (!v) return { error: 'Required — an IP address like 192.168.1.20, or 127.0.0.1 for this computer.' };
       if (/^[a-z]+:\/\//i.test(v) || /[\s/]/.test(v)) return { error: 'Just the address, like 192.168.1.20 (no http:// or slashes).' };
       if (!/^[A-Za-z0-9.\-:[\]]+$/.test(v)) return { error: 'That does not look like an IP address or computer name.' };
+      if (v.startsWith('-')) return { error: 'That does not look like an IP address or computer name.' }; // ping would read it as an option
       return { value: v };
     }
     case 'port': {

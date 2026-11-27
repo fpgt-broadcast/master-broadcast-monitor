@@ -132,6 +132,20 @@ test('full show walk-through against the simulator', { timeout: 120000 }, async 
     await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ expectedSport: 'auto' }) });
   });
 
+  await t.test('another site\'s page can\'t change settings (CSRF, DNS rebinding)', async () => {
+    const before = app.settings.get('expectedSport');
+    const r = await fetch(`${base}/api/settings`, { method: 'POST', headers: { 'Content-Type': 'text/plain', Origin: 'http://evil.example' }, body: JSON.stringify({ expectedSport: 'soccer' }) });
+    assert.equal(r.status, 403);
+    const c = await fetch(`${base}/api/config`, { method: 'POST', headers: { Origin: 'null' }, body: '{"values":{}}' });
+    assert.equal(c.status, 403);
+    assert.equal(app.settings.get('expectedSport'), before);
+    const own = await fetch(`${base}/api/settings`, { method: 'POST', headers: { Origin: base }, body: JSON.stringify({ expectedSport: 'auto' }) });
+    assert.equal(own.status, 200, 'its own page still works');
+    const http = await import('node:http');
+    const status = await new Promise((resolve) => http.get(`${base}/api/state`, { headers: { Host: 'rebind.evil.example' } }, (res) => { res.resume(); resolve(res.statusCode); }));
+    assert.equal(status, 421);
+  });
+
   await t.test('YouTube live with vMix stopped is red', async () => {
     scenario('LIVE — vMix stopped streaming');
     const s = await until(app, (x) => ids(x).includes('youtube.live_no_vmix'));

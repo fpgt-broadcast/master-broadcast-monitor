@@ -5,6 +5,7 @@ import { detectSport, SPORTS } from './lib/sports.js';
 import { FIELDS, isSecret, getPath, validate } from '../public/settings-schema.js';
 import { readAsset } from './runtime.js';
 import { pickInterfaces } from './lib/mdns.js';
+import { hostAllowed, hostName, crossSite } from './lib/guard.js';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -122,6 +123,15 @@ export function createServer(app) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const key = `${req.method} ${url.pathname}`;
+    // Another site's page must not change settings through the operator's browser: not by pointing its own
+    // domain at this computer (DNS rebinding), and not by posting here (no login, and the body is read as JSON
+    // whatever its Content-Type, so a plain form-style POST would work).
+    if (!hostAllowed(req.headers.host)) {
+      res.writeHead(421, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(`Broadcast Monitor doesn't answer to the name "${hostName(req.headers.host)}". Use this computer's IP address, or add the name to BM_ALLOWED_HOSTS.`);
+      return;
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req)) return sendJson(res, 403, { error: 'Changes must come from Broadcast Monitor\'s own pages.' });
     try {
       if (routes[key]) {
         const body = req.method === 'POST' ? await readBody(req) : null;

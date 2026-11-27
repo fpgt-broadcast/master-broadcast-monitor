@@ -95,6 +95,11 @@ top of the Settings page, so an alarm is never missed while you edit.
 
 > Port 8090 is clear of vMix (8088, 8099), OpenStatsEngine (8080) and
 > ScoreConnect's MQTT (1883). Use `--port 9000` for another.
+>
+> Open it by IP address, `localhost`, the computer's name or a `.local` name.
+> Other names are refused so a web page can't reach it through your browser;
+> add one with `BM_ALLOWED_HOSTS=monitor.example.org` if you need it. Only the
+> dashboard's own pages can change settings.
 
 ### Try it without any gear
 
